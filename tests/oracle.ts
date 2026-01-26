@@ -9,55 +9,91 @@ describe("oracle", () => {
 
   const program = anchor.workspace.Oracle as Program<Oracle>;
 
-  const oracleKeypair = anchor.web3.Keypair.generate();
-  const owner = provider.wallet; // wallet that will be oracle owner
+  const owner = provider.wallet;
+
+  // Reused across tests
+  const SYMBOL = "SOL/USD";
+  const EXPO = -8;
+  const INITIAL_PRICE = new anchor.BN(100_000_000); // 1.0 * 10^8
+  const INITIAL_CONFIDENCE = new anchor.BN(1_000_000);
+
+  let oraclePda: anchor.web3.PublicKey;
+
+  // Derive the PDA the same way as in the Rust seeds:
+  // seeds = [b"oracle", owner.key().as_ref(), symbol.as_bytes()]
+  before(() => {
+    oraclePda = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("oracle"),
+        owner.publicKey.toBuffer(),
+        Buffer.from(SYMBOL),
+      ],
+      program.programId
+    )[0];
+  });
 
   it("initializes the oracle", async () => {
-    const initialPrice = new anchor.BN(100);
-
     await program.methods
-      .initialize(initialPrice)
+      .initialize(SYMBOL, INITIAL_PRICE, EXPO, INITIAL_CONFIDENCE)
       .accounts({
-        oracle: oracleKeypair.publicKey,
+        oracle: oraclePda,
         owner: owner.publicKey,
         payer: owner.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .signers([oracleKeypair])
+      // no .signers for PDA; Anchor creates it via seeds, payer signs via provider.wallet
       .rpc();
 
-    const oracleAccount = await program.account.oracle.fetch(
-      oracleKeypair.publicKey
-    );
+    const oracleAccount = await program.account.oracle.fetch(oraclePda);
 
     console.log("Oracle after initialize:", oracleAccount);
-    expect(oracleAccount.price.toNumber()).to.equal(100);
+
     expect(oracleAccount.owner.toBase58()).to.equal(
       owner.publicKey.toBase58()
     );
+    expect(oracleAccount.symbol).to.equal(SYMBOL);
+    expect(oracleAccount.price.toString()).to.equal(
+      INITIAL_PRICE.toString()
+    );
+    expect(oracleAccount.expo).to.equal(EXPO);
+    expect(oracleAccount.confidence.toString()).to.equal(
+      INITIAL_CONFIDENCE.toString()
+    );
+    expect(oracleAccount.lastUpdateSlot.toNumber()).to.be.greaterThan(0);
   });
 
-  it("updates the oracle price with correct owner", async () => {
-    const newPrice = new anchor.BN(200);
+  it("updates the oracle price and confidence with the correct owner", async () => {
+    const newPrice = new anchor.BN(200_000_000); // 2.0 * 10^8
+    const newConfidence = new anchor.BN(500_000);
+
+    // Fetch before update so we can compare slots
+    const before = await program.account.oracle.fetch(oraclePda);
+    const beforeSlot = before.lastUpdateSlot.toNumber();
 
     await program.methods
-      .update(newPrice)
+      .update(newPrice, newConfidence)
       .accounts({
-        oracle: oracleKeypair.publicKey,
+        oracle: oraclePda,
         owner: owner.publicKey,
       })
       .rpc();
 
-    const oracleAccount = await program.account.oracle.fetch(
-      oracleKeypair.publicKey
-    );
+    const oracleAccount = await program.account.oracle.fetch(oraclePda);
 
     console.log("Oracle after update:", oracleAccount);
-    expect(oracleAccount.price.toNumber()).to.equal(200);
+
+    expect(oracleAccount.price.toString()).to.equal(newPrice.toString());
+    expect(oracleAccount.confidence.toString()).to.equal(
+      newConfidence.toString()
+    );
+    expect(oracleAccount.lastUpdateSlot.toNumber()).to.be.greaterThan(
+      beforeSlot
+    );
   });
 
   it("fails if a non-owner tries to update", async () => {
-    const newPrice = new anchor.BN(300);
+    const newPrice = new anchor.BN(300_000_000);
+    const newConfidence = new anchor.BN(999_999);
     const attacker = anchor.web3.Keypair.generate();
 
     // airdrop so attacker can pay fees
@@ -65,9 +101,9 @@ describe("oracle", () => {
 
     try {
       await program.methods
-        .update(newPrice)
+        .update(newPrice, newConfidence)
         .accounts({
-          oracle: oracleKeypair.publicKey,
+          oracle: oraclePda,
           owner: attacker.publicKey,
         })
         .signers([attacker])
@@ -75,8 +111,47 @@ describe("oracle", () => {
 
       assert.fail("Expected update by non-owner to fail, but it succeeded");
     } catch (err) {
-      // success: it should throw
       console.log("Non-owner update failed as expected:", err?.toString());
     }
+  });
+
+  it("allows same owner to create multiple oracles for different symbols", async () => {
+    const OTHER_SYMBOL = "BTC/USD";
+    const OTHER_PRICE = new anchor.BN(50_000_000_000); // 500 * 10^8
+    const OTHER_CONFIDENCE = new anchor.BN(2_000_000);
+
+    const [otherOraclePda] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("oracle"),
+          owner.publicKey.toBuffer(),
+          Buffer.from(OTHER_SYMBOL),
+        ],
+        program.programId
+      );
+
+    await program.methods
+      .initialize(OTHER_SYMBOL, OTHER_PRICE, EXPO, OTHER_CONFIDENCE)
+      .accounts({
+        oracle: otherOraclePda,
+        owner: owner.publicKey,
+        payer: owner.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc();
+
+    const solOracle = await program.account.oracle.fetch(oraclePda);
+    const btcOracle = await program.account.oracle.fetch(otherOraclePda);
+
+    console.log("SOL oracle:", solOracle);
+    console.log("BTC oracle:", btcOracle);
+
+    expect(solOracle.symbol).to.equal("SOL/USD");
+    expect(btcOracle.symbol).to.equal("BTC/USD");
+
+    expect(solOracle.price.toString()).to.not.equal(
+      btcOracle.price.toString()
+    );
+    expect(solOracle.symbol).to.not.equal(btcOracle.symbol);
   });
 });
