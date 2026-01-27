@@ -339,10 +339,6 @@ Anchor.toml           → config
 
 MIT
 
-Perfect — this belongs in the README as the canonical “why this exists” section for v3.
-
-Below is a clean, structured V3 section you can drop directly into your README. It preserves all meaning, but formats it properly for dev consumption.
-
 ---
 
 # 📦 **Oracle V3 — Design Overview**
