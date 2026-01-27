@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
-use crate::Update; 
-use crate::PriceUpdated;
+use crate::{Update, CheckPrice, PriceUpdated, OracleError};
+
 
 pub fn update(
     ctx: Context<Update>,
@@ -26,3 +26,27 @@ pub fn update(
     Ok(())
 }
 
+pub fn check_price(
+    ctx: Context<CheckPrice>,
+    max_staleness_slots: u64,
+    max_confidence: u64,
+) -> Result<()> {
+    let oracle = &ctx.accounts.oracle;
+    let current_slot = Clock::get()?.slot;
+
+    let age = current_slot
+        .checked_sub(oracle.last_update_slot)
+        .unwrap_or(u64::MAX);
+
+    require!(
+        age <= max_staleness_slots,
+        OracleError::StalePrice
+    );
+
+    require!(
+        oracle.confidence <= max_confidence,
+        OracleError::ConfidenceTooHigh
+    );
+
+    Ok(())
+}

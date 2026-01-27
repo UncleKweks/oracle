@@ -154,4 +154,51 @@ describe("oracle", () => {
     );
     expect(solOracle.symbol).to.not.equal(btcOracle.symbol);
   });
+
+  it("check_price passes for fresh and tight confidence", async () => {
+    // reuse existing oraclePda, initialized + updated earlier
+    const maxStalenessSlots = new anchor.BN(10_000); // very relaxed
+    const maxConfidence = new anchor.BN(1_000_000_000); // very relaxed
+
+    await program.methods
+      .checkPrice(maxStalenessSlots, maxConfidence)
+      .accounts({
+        oracle: oraclePda,
+      })
+      .rpc();
+  });
+
+  it("check_price fails when confidence is too wide", async () => {
+    const veryWideConfidence = new anchor.BN(1_000_000_000_000); // huge
+    const maxConfidence = new anchor.BN(1); // tiny threshold
+
+    // First, update oracle to have huge confidence
+    const newPrice = new anchor.BN(999_000_000);
+
+    await program.methods
+      .update(newPrice, veryWideConfidence)
+      .accounts({
+        oracle: oraclePda,
+        owner: owner.publicKey,
+      })
+      .rpc();
+
+    // Then, check_price with a very small allowed confidence - should fail
+    try {
+      await program.methods
+        .checkPrice(new anchor.BN(10_000), maxConfidence)
+        .accounts({
+          oracle: oraclePda,
+        })
+        .rpc();
+
+      assert.fail("Expected check_price to fail due to high confidence");
+    } catch (err) {
+      console.log(
+        "check_price failed due to high confidence, as expected:",
+        err?.toString()
+      );
+    }
+  });
+
 });

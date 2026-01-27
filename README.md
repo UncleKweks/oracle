@@ -339,3 +339,263 @@ Anchor.toml           → config
 
 MIT
 
+Perfect — this belongs in the README as the canonical “why this exists” section for v3.
+
+Below is a clean, structured V3 section you can drop directly into your README. It preserves all meaning, but formats it properly for dev consumption.
+
+---
+
+# 📦 **Oracle V3 — Design Overview**
+
+## 🧠 What Are We Building?
+
+Oracle v3 is a custom Solana price oracle inspired by Pyth / Switchboard / Chainlink, but simplified and developer-controlled. It provides:
+
+✔ controlled price updates <br>
+✔ deterministic feed discovery <br>
+✔ metadata for safety (expo, confidence, last update slot) <br>
+✔ consumer-side validation constraints
+
+Its core purpose:
+
+> **Store a price, its uncertainty, its decimals, and how recently it was updated — and allow other programs to verify whether this price is fresh and reliable enough for their usage.**
+
+This enables downstream applications (e.g. swaps, liquidations, lending, pricing, risk checks) to make deterministic decisions based on on-chain data.
+
+---
+
+## 🧩 Oracle Mental Model
+
+For each `(owner, symbol)` feed, the oracle stores:
+
+| Field              | Purpose                                       |
+| ------------------ | --------------------------------------------- |
+| `price`            | raw integer price value (e.g. `103_000_000`)  |
+| `expo`             | exponent / decimals (e.g. `-8` means `10^-8`) |
+| `confidence`       | price uncertainty interval (±)                |
+| `last_update_slot` | recency metadata                              |
+| `owner`            | authorized signer for updates                 |
+| `symbol`           | market string (e.g. `SOL/USD`)                |
+
+This mirrors Pyth’s data model:
+
+```
+price: 103.00 USD
+confidence: ±0.002
+expo: -4
+slot: 213845028
+```
+
+except ours is intentionally simpler, and fully controlled at the program layer.
+
+---
+
+## 🏗 Why These Design Choices?
+
+### **① Integer Price + Exponent**
+
+We store:
+
+```
+price: i64
+expo: i32
+```
+
+instead of floating point. This avoids:
+
+* floating point nondeterminism
+* rounding errors
+* mismatched decimal assumptions
+* IEEE754 surprises
+
+Example:
+
+```
+price = 123450000
+expo  = -6
+```
+
+represents `123.45`.
+
+This format supports:
+
+✔ crypto pairs <br>
+✔ FX pairs <br>
+✔ metals <br>
+✔ interest rates <br>
+✔ any asset class with precision requirements
+
+---
+
+### **② Confidence Interval is Explicit**
+
+Two prices with equal means can have radically different risk:
+
+```
+100,000 ± 50      → safe for liquidation
+100,000 ± 25,000  → unusable for liquidation
+```
+
+Confidence empowers consumers to implement policies like:
+
+```rust
+if confidence <= threshold && is_fresh { allow_trade }
+else { block_trade }
+```
+
+Key principle:
+
+> The oracle does not enforce policy. Consumers do.
+
+---
+
+### **③ Slot-Based Staleness Checks**
+
+We use `last_update_slot` instead of timestamps because:
+
+* slots monotonically increase
+* timestamps may stall
+* slot finality reflects consensus time
+* avoids clock drift assumptions
+
+Consumers compute:
+
+```
+age = current_slot - last_update_slot
+```
+
+This defends against:
+
+✔ stale feeds <br>
+✔ halted update sources <br>
+✔ isolation / censorship scenarios
+
+---
+
+### **④ PDA = (Owner, Symbol)**
+
+We derive feeds via:
+
+```
+seeds = ["oracle", owner, symbol]
+```
+
+This yields:
+
+**(a) Multi-market feeds per owner**
+
+```
+SOL/USD
+BTC/USD
+ETH/BTC
+```
+
+**(b) No global registry**
+
+Feeds are self-organizing and decentralized.
+
+**(c) Deterministic discovery**
+
+Consumers compute addresses directly without lookup tables:
+
+```rust
+oracle_addr = derive(owner, "SOL/USD")
+```
+
+This matches how Chainlink/Pyth feeds are located on-chain today.
+
+---
+
+### **⑤ Owner-Gated Updates**
+
+Only the `owner` signer may update:
+
+```
+has_one = owner
+```
+
+This is the simplest authority model and can be extended later to:
+
+* multisig writers
+* committee-based feeds
+* off-chain attestation
+* proxy publishers
+* aggregation voting
+
+For v3, single-owner = low-friction + clarity.
+
+---
+
+### **⑥ `check_price` is a Separate Instruction**
+
+Updates publish data.
+Checks validate data.
+
+These are deliberately decoupled:
+
+| Role          | Purpose                                        |
+| ------------- | ---------------------------------------------- |
+| `update`      | publish a new price & metadata                 |
+| `check_price` | validate freshness + narrowness for a consumer |
+
+Different consumers have different safety constraints:
+
+| Consumer    | Needs                       |
+| ----------- | --------------------------- |
+| liquidator  | fresh + strict confidence   |
+| swap router | wider confidence acceptable |
+| analytics   | may tolerate stale data     |
+
+Therefore:
+
+```ts
+checkPrice(maxStalenessSlots, maxConfidence)
+```
+
+lets **consumers enforce their own policy** instead of being forced into global constraints.
+
+---
+
+## 🧱 V3 in One Sentence
+
+> **A deterministic PDA-based price feed with owner-controlled updates, built-in confidence intervals, slot recency metadata, and consumer-driven validation logic.**
+
+Or simpler:
+
+> **A customizable on-chain price feed primitive.**
+
+---
+
+## 🛠 Problems V3 Solves
+
+| Oracle Failure Mode      | Defense in V3       |
+| ------------------------ | ------------------- |
+| stale price              | slot checks         |
+| manipulated price        | confidence checks   |
+| wrong decimals           | exponent            |
+| feed discovery ambiguity | PDA derivation      |
+| unauthorized updates     | owner gating        |
+| consumer mismatch        | consumer validation |
+
+These map directly to real-world DeFi risk vectors.
+
+---
+
+## 💡 Why This Matters
+
+In DeFi:
+
+> **Prices are the anchor that the entire system balances on.**
+
+If prices are wrong, everything breaks:
+
+* liquidations
+* lending
+* swaps
+* AMMs
+* perps
+* risk engines
+
+Even though v3 is intentionally small, it captures several foundational correctness themes used in production oracles.
+
+---

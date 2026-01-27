@@ -2,11 +2,20 @@ use anchor_lang::prelude::*;
 
 declare_id!("MwUYTnAbCSUKDvNFBdT3kNv7JpKhauKpRgc2DV2LFKX");
 
+pub mod instructions;
+
 #[program]
 pub mod oracle {
     use super::*;
+    use crate::instructions;
 
-    pub fn initialize(ctx: Context<Initialize>, symbol: String, initial_price: i64, expo: i32, confidence: u64) -> Result<()> {
+    pub fn initialize(
+        ctx: Context<Initialize>,
+        symbol: String,
+        initial_price: i64,
+        expo: i32,
+        confidence: u64,
+    ) -> Result<()> {
         let oracle = &mut ctx.accounts.oracle;
         oracle.owner = ctx.accounts.owner.key();
         oracle.symbol = symbol;
@@ -17,32 +26,43 @@ pub mod oracle {
         Ok(())
     }
 
-   pub fn update(ctx: Context<Update>, new_price: i64, new_confidence: u64) -> Result<()> {
+    pub fn update(
+        ctx: Context<Update>,
+        new_price: i64,
+        new_confidence: u64,
+    ) -> Result<()> {
         instructions::update(ctx, new_price, new_confidence)
+    }
+
+    pub fn check_price(
+        ctx: Context<CheckPrice>,
+        max_staleness_slots: u64,
+        max_confidence: u64,
+    ) -> Result<()> {
+        instructions::check_price(ctx, max_staleness_slots, max_confidence)
     }
 }
 
-pub mod instructions;
+// keep all this as you already had it:
 
 #[account]
 pub struct Oracle {
-    pub owner: Pubkey,         // same as v1
-    pub symbol: String,        // e.g. "SOL/USD"
-    pub price: i64,            // raw price value
-    pub expo: i32,             // decimals/exponent, like Pyth
-    pub confidence: u64,       // +/- range around price
-    pub last_update_slot: u64, // for staleness checks
+    pub owner: Pubkey,
+    pub symbol: String,
+    pub price: i64,
+    pub expo: i32,
+    pub confidence: u64,
+    pub last_update_slot: u64,
 }
 
 impl Oracle {
-    pub const LEN: usize = 32       // owner
-        + 4 + 16                    // symbol: String (4 bytes length + up to 16 chars)
-        + 8                         // price
-        + 4                         // expo
-        + 8                         // confidence
-        + 8;                        // last_update_slot
+    pub const LEN: usize = 32
+        + 4 + 16
+        + 8
+        + 4
+        + 8
+        + 8;
 }
-
 
 #[event]
 pub struct PriceUpdated {
@@ -52,6 +72,15 @@ pub struct PriceUpdated {
     pub expo: i32,
     pub confidence: u64,
     pub slot: u64,
+}
+
+#[error_code]
+pub enum OracleError {
+    #[msg("Oracle price is too stale")]
+    StalePrice,
+
+    #[msg("Oracle confidence interval is too wide")]
+    ConfidenceTooHigh,
 }
 
 #[derive(Accounts)]
@@ -66,8 +95,6 @@ pub struct Initialize<'info> {
     )]
     pub oracle: Account<'info, Oracle>,
 
-    /// The account that will become the oracle owner.
-    /// Store its pubkey in the Oracle state.
     pub owner: Signer<'info>,
 
     #[account(mut)]
@@ -83,6 +110,11 @@ pub struct Update<'info> {
         has_one = owner
     )]
     pub oracle: Account<'info, Oracle>,
-    /// The oracle owner authorized to update the price.
+
     pub owner: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CheckPrice<'info> {
+    pub oracle: Account<'info, Oracle>,
 }
