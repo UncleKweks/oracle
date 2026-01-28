@@ -131,6 +131,63 @@ anchor keys sync
 
 ---
 
+## 🛠 Toolchain Requirements (Tested Versions)
+
+The oracle program has been developed and tested using the following toolchain versions:
+
+```bash
+Anchor CLI:      0.32.1
+Solana CLI:      3.0.13
+Rust (cargo):    1.78.0
+```
+
+To ensure reproducible builds and avoid unexpected behavior, it is recommended to use equal or newer compatible versions.
+
+If using `rustup`, make sure you are on the latest stable toolchain:
+
+```bash
+rustup default stable
+```
+
+For Anchor, install/upgrade via:
+
+```bash
+cargo install --git https://github.com/coral-xyz/anchor avm --locked
+avm install 0.32.1
+avm use 0.32.1
+```
+
+---
+
+### Minimum Supported Versions
+
+- Anchor CLI ≥ 0.32.1
+- Solana CLI ≥ 3.0.0
+- Cargo ≥ 1.78.0
+
+---
+
+### Tested environment:
+
+- OS: Ubuntu 22.04 (WSL2)
+- CPU: x86_64
+- Chain: Localnet test validator via `anchor test`
+
+---
+
+# If you want auto-pinning (optional)
+
+You can also pin in `Anchor.toml`:
+
+```toml
+[toolchain]
+anchor_version = "0.32.1"
+```
+
+Not required, but solves the annoying mismatch warnings for new contributors.
+
+---
+
 ## 🗺 Future Roadmap
 
 Planned `v2 — Multi-Asset Oracle`:
