@@ -652,3 +652,35 @@ If prices are wrong, everything breaks:
 Even though v3 is intentionally small, it captures several foundational correctness themes used in production oracles.
 
 ---
+
+## 📦 Oracle V4 — Internal Oracle Enhancements
+
+Oracle V4 extends the V3 design to better support **internal protocol usage**, tighter safety guarantees, and simpler consumer integrations.
+
+### ✨ New features in V4
+
+- **Stored policy per feed**
+  - `max_staleness_slots`
+  - `max_confidence`  
+  These are persisted directly in the oracle account and define the default safety constraints for consumers.
+
+- **Policy management**
+  - `set_policy(max_staleness_slots, max_confidence)`  
+  Allows the oracle owner to update the stored validation policy for a feed.
+
+- **Policy-based validation**
+  - `check_price_stored()`  
+  Performs a price validation using the oracle’s stored policy, removing the need for consumers to pass thresholds on every call.
+
+- **Emergency controls**
+  - `pause()` / `resume()`  
+  Allows the oracle owner to temporarily disable or re-enable the feed.  
+  All price checks fail while the oracle is paused.
+
+- **Price sanity enforcement**
+  - Updates reject negative prices (`price >= 0`), ensuring the oracle remains safe for spot-price usage within internal protocols.
+
+- **Symbol length safety**
+  - Enforces a maximum symbol length of 16 bytes during initialization, preventing account layout and serialization issues.
+
+These additions make V4 suitable as a production-grade **internal oracle primitive** for protocol components such as lending markets, AMMs, and liquidation engines.

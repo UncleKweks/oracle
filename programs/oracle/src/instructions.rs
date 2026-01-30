@@ -10,6 +10,10 @@ pub fn update(
 ) -> Result<()> {
     let oracle = &mut ctx.accounts.oracle;
 
+    // v4 safety guards
+    require!(oracle.status == 0, OracleError::OraclePaused);
+    require!(new_price >= 0, OracleError::InvalidPrice);
+
     oracle.price = new_price;
     oracle.confidence = new_confidence;
     oracle.last_update_slot = Clock::get()?.slot;
@@ -32,21 +36,19 @@ pub fn check_price(
     max_confidence: u64,
 ) -> Result<()> {
     let oracle = &ctx.accounts.oracle;
+
+    // v4 safety guard
+    require!(oracle.status == 0, OracleError::OraclePaused);
+
     let current_slot = Clock::get()?.slot;
 
     let age = current_slot
         .checked_sub(oracle.last_update_slot)
         .unwrap_or(u64::MAX);
 
-    require!(
-        age <= max_staleness_slots,
-        OracleError::StalePrice
-    );
-
-    require!(
-        oracle.confidence <= max_confidence,
-        OracleError::ConfidenceTooHigh
-    );
+    require!(age <= max_staleness_slots, OracleError::StalePrice);
+    require!(oracle.confidence <= max_confidence, OracleError::ConfidenceTooHigh);
 
     Ok(())
 }
+

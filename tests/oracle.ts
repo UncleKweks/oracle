@@ -62,6 +62,20 @@ describe("oracle", () => {
     expect(oracleAccount.lastUpdateSlot.toNumber()).to.be.greaterThan(0);
   });
 
+
+  it("check_price_stored passes using oracle policy", async () => {
+    await program.methods
+      .setPolicy(new anchor.BN(10_000), new anchor.BN(1_000_000_000))
+      .accounts({ oracle: oraclePda, owner: owner.publicKey })
+      .rpc();
+
+    await program.methods
+      .checkPriceStored()
+      .accounts({ oracle: oraclePda })
+      .rpc();
+  });
+
+
   it("updates the oracle price and confidence with the correct owner", async () => {
     const newPrice = new anchor.BN(200_000_000); // 2.0 * 10^8
     const newConfidence = new anchor.BN(500_000);
@@ -199,6 +213,23 @@ describe("oracle", () => {
         err?.toString()
       );
     }
+  });
+
+  it("paused oracle makes checks fail", async () => {
+    await program.methods
+      .pause()
+      .accounts({ oracle: oraclePda, owner: owner.publicKey })
+      .rpc();
+
+    try {
+      await program.methods.checkPriceStored().accounts({ oracle: oraclePda }).rpc();
+      assert.fail("Expected paused oracle to fail");
+    } catch (_) { }
+
+    await program.methods
+      .resume()
+      .accounts({ oracle: oraclePda, owner: owner.publicKey })
+      .rpc();
   });
 
 });
